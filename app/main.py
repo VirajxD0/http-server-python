@@ -33,9 +33,11 @@ def handle_request(req, base_directory):
         response_body = req["path"][6:].encode('utf-8')
         headers = {}
         
-        # Check for Accept-Encoding header
+        # Check for Accept-Encoding header and parse it
         accept_encoding = req["headers"].get("Accept-Encoding", "")
-        if "gzip" in accept_encoding:
+        encodings = [encoding.strip() for encoding in accept_encoding.split(",")]
+
+        if "gzip" in encodings:
             headers["Content-Encoding"] = "gzip"  # Add Content-Encoding header
         
         return reply(req, 200, response_body, headers)
