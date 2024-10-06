@@ -44,26 +44,25 @@ class Connection(Thread):
         #        ['HTTP/1.1 200 OK', 'Content-Type: text/plain', f'Content-Length: {len(data)}',
         #         '', '\r\n'.join(data)])
         elif path.startswith("/files/"):
-            dir_content = os.listdir(args.directory)
-            if path[7:] in dir_content:
-                with open(path[7:], "r") as f:
+            
                  print(os.listdir(args.directory))
-            print(os.path.join(args.directory, path[7:]))
-            if os.path.exists(os.path.join(args.directory, path[7:])):
-                with open(os.path.join(args.directory, path[7:]), "r") as f:
+                 print(os.path.join(args.directory, path[7:]))
+                 
+                 if os.path.exists(os.path.join(args.directory, path[7:])):
+                   with open(os.path.join(args.directory, path[7:]), "r") as f:
                     file_content = f.read()
-                self.resp(
+                   self.resp(
                     [
                         "HTTP/1.1 200 OK",
-                        "Content-Type: text/plain",
+                        
                         "Content-Type: application/octet-stream",
                         f"Content-Length: {len(file_content)}",
                         "",
                         file_content,
                     ]
                 )
-            else:
-                self.resp(
+                 else:
+                  self.resp(
                     [
                         "HTTP/1.1 404",
                         "Content-Type: text/plain",
