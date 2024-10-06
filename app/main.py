@@ -103,10 +103,13 @@ def main():
     print("Server is listening on localhost:4221...")
 
     while True:
-        conn, addr = server_socket.accept()
-        print(f"Connected by {addr}")
-        client_thread = Thread(target=handle_client, args=(conn, base_directory))
-        client_thread.start()
+        try:
+            conn, addr = server_socket.accept()
+            print(f"Connected by {addr}")
+            client_thread = Thread(target=handle_client, args=(conn, base_directory))
+            client_thread.start()
+        except Exception as e:
+            print(f"Error accepting connection: {e}")
 
 if __name__ == "__main__":
     main()
