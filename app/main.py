@@ -8,6 +8,8 @@ def reply(req, code, body=b"", headers={}):
     match code:
         case 200:
             b_reply += b"HTTP/1.1 200 OK\r\n"
+        case 201:
+            b_reply += b"HTTP/1.1 201 Created\r\n"
         case 404:
             b_reply += b"HTTP/1.1 404 Not Found\r\n"
         case 500:
@@ -32,7 +34,20 @@ def handle_request(req, base_directory):
     elif req["path"].startswith("/files/"):
         filename = req["path"][7:]  # Get the filename from the path
         file_path = os.path.join(base_directory, filename)
+
+        if req["method"] == "POST":
+            # Read the body from the request
+            body = req["body"]
+            try:
+                # Create a new file and write the body to it
+                with open(file_path, 'wb') as f:
+                    f.write(body)
+                return reply(req, 201)  # Return 201 Created
+            except Exception as e:
+                print(f"Error writing file: {e}")
+                return reply(req, 500)
         
+        # Handle GET requests for existing files
         if os.path.isfile(file_path):
             with open(file_path, 'rb') as f:
                 file_content = f.read()
@@ -50,7 +65,7 @@ def handle_request(req, base_directory):
         return reply(req, 404)
 
 def parse_request(data):
-    output = {"method": "", "path": "", "headers": {}, "body": ""}
+    output = {"method": "", "path": "", "headers": {}, "body": b""}
     lines = data.decode("utf-8").split("\r\n")
     if len(lines) < 3:
         return None
@@ -68,8 +83,11 @@ def parse_request(data):
         header_key, header_value = line.split(": ", 1)
         output["headers"][header_key] = header_value
         header_line_count += 1
+
+    # Read the body based on Content-Length
+    content_length = int(output["headers"].get("Content-Length", 0))
     if len(lines) > header_line_count + 1:
-        output["body"] = lines[header_line_count + 1]
+        output["body"] = data.split(b"\r\n\r\n")[1][:content_length]  # Extract the body from the request data
     return output
 
 def handle_client(conn, base_directory):
