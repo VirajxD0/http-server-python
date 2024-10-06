@@ -3,7 +3,7 @@ import os
 import sys
 from threading import Thread
 
-def reply(req, code, body="", headers={}):
+def reply(req, code, body=b"", headers={}):
     b_reply = b""
     match code:
         case 200:
@@ -12,7 +12,7 @@ def reply(req, code, body="", headers={}):
             b_reply += b"HTTP/1.1 404 Not Found\r\n"
         case 500:
             b_reply += b"HTTP/1.1 500 Internal Server Error\r\n"
-    
+
     if "Content-Type" not in headers:
         headers["Content-Type"] = "text/plain"
     if body:
@@ -20,14 +20,15 @@ def reply(req, code, body="", headers={}):
     
     for key, val in headers.items():
         b_reply += bytes(f"{key}: {val}", "utf-8") + b"\r\n"
-    b_reply += b"\r\n" + bytes(body, "utf-8")
+    
+    b_reply += b"\r\n" + body  # Use body directly as bytes
     return b_reply
 
 def handle_request(req, base_directory):
     if req["path"] == "/":
         return reply(req, 200)
     elif req["path"].startswith("/echo/"):
-        return reply(req, 200, req["path"][6:])
+        return reply(req, 200, req["path"][6:].encode('utf-8'))
     elif req["path"].startswith("/files/"):
         filename = req["path"][7:]  # Get the filename from the path
         file_path = os.path.join(base_directory, filename)
@@ -39,12 +40,12 @@ def handle_request(req, base_directory):
                 "Content-Type": "application/octet-stream",
                 "Content-Length": str(len(file_content))
             }
-            return reply(req, 200, file_content, headers)
+            return reply(req, 200, file_content, headers)  # Send the file content as bytes
         else:
             return reply(req, 404)
     elif req["path"] == "/user-agent":
         ua = req["headers"].get("User-Agent", "")
-        return reply(req, 200, ua)
+        return reply(req, 200, ua.encode('utf-8'))
     else:
         return reply(req, 404)
 
