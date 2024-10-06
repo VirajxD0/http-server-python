@@ -1,6 +1,7 @@
 import socket
 import os
 import sys
+import gzip
 from threading import Thread
 
 def reply(req, code, body=b"", headers={}):
@@ -38,9 +39,15 @@ def handle_request(req, base_directory):
         encodings = [encoding.strip() for encoding in accept_encoding.split(",")]
 
         if "gzip" in encodings:
+            # Compress the response body with gzip
+            compressed_body = gzip.compress(response_body)
             headers["Content-Encoding"] = "gzip"  # Add Content-Encoding header
+            headers["Content-Length"] = str(len(compressed_body))  # Set Content-Length header
+            return reply(req, 200, compressed_body, headers)
         
+        # If no gzip, return uncompressed response
         return reply(req, 200, response_body, headers)
+    
     elif req["path"].startswith("/files/"):
         filename = req["path"][7:]  # Get the filename from the path
         file_path = os.path.join(base_directory, filename)
