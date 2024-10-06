@@ -89,11 +89,14 @@ def handle_client(conn, base_directory):
         conn.close()
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
+    # Default directory if not provided in testing
+    base_directory = os.getcwd()  # Use current working directory as default
+
+    if len(sys.argv) == 3 and sys.argv[1] == '--directory':
+        base_directory = sys.argv[2]
+    elif len(sys.argv) != 1:
         print("Usage: python your_program.py --directory <absolute_path>")
         return
-
-    base_directory = sys.argv[2]
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
