@@ -1,74 +1,59 @@
 import socket
-from threading import Thread
-def reply(req, code, body="", headers={}):
-    b_reply = b""
-    match code:
-        case 200:
-            b_reply += b"HTTP/1.1 200 OK\r\n"
-        case 404:
-            b_reply += b"HTTP/1.1 404 Not Found\r\n"
-        case 500:
-            b_reply += b"HTTP/1.1 500 No\r\n"
-    if not "Content-Type" in headers:
-        headers["Content-Type"] = "text/plain"
-    if body != "":
-        headers["Content-Length"] = str(len(body))
-    for key, val in headers.items():
-        b_reply += bytes(key, "utf-8") + b": " + bytes(val, "utf-8") + b"\r\n"
-    b_reply += b"\r\n" + bytes(body, "utf-8")
-    return b_reply
-def handle_request(conn, req):
-    if req["path"] == "/":
-        return reply(req, 200)
-    if req["path"].startswith("/echo/"):
-        return reply(req, 200, req["path"][6:])
-    if req["path"] == "/user-agent":
-        ua = req["headers"]["User-Agent"]
-        return reply(req, 200, ua)
-    return reply(req, 404)
-def parse_request(bytes):
-    output = {"method": "", "path": "", "headers": {}, "body": ""}
-    lines = bytes.decode("utf-8").split("\r\n")
-    if len(lines) < 3:
-        return None
-    reqLine = lines[0].split(" ")
-    if (not reqLine[0]) or reqLine[0] not in ["GET", "POST", "PUT", "HEAD"]:
-        return None
-    if (not reqLine[1]) or reqLine[1][0] != "/":
-        return None
-    output["method"] = reqLine[0]
-    output["path"] = reqLine[1]
-    # Ignore HTTP version
-    lines = lines[1:]
-    c = 0
-    for l in lines:
-        if l == "":
-            break
-        headLine = l.split(":")
-        output["headers"][headLine[0]] = headLine[1].lstrip()
-        c += 1
-    output["body"] = lines[c + 1]
-    return output
-def handle_client(conn):
-    byte = []
-    try:
-        while (byte := conn.recv(1024)) != b"":
-            parsed_req = parse_request(byte)
-            if parsed_req == None:
-                conn.send(str.encode("HTTP/1.1 500 No\r\n\r\n"))
-                return conn.close()
-            # Recv & parsed request
-            conn.send(handle_request(conn, parsed_req))
-            return conn.close()
-    except Exception as e:
-        print("handle_client err", e)
-def main():
+import threading
+from typing import Dict
+class HTTPRequest:
+    method: str
+    path: str
+    http_version: str
+    headers: Dict[str, str]
+    def __init__(self) -> None:
+        self.headers = {}
+    @staticmethod
+    def from_bytes(request_bytes: bytes) -> "HTTPRequest":
+        request = HTTPRequest()
+        line_iter = iter(request_bytes.split(b"\r\n"))
+        line = next(line_iter)
+        request.method, request.path, request.http_version = [
+            b.decode() for b in line.split(b" ")
+        ]
+        for line in line_iter:
+            if len(line.strip()) == 0:
+                continue
+            key, value = line.split(b":", maxsplit=1)
+            request.headers[key.decode()] = value.decode().strip()
+        return request
+def main() -> None:
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    threads = []
-    while 1:
-        conn, addr = server_socket.accept()  # wait for client
-        t = Thread(target=handle_client, args=[conn])
-        threads.append(t)
-        t.run()
+    while True:
+        sock, response_addr = server_socket.accept()  # wait for client
+        request_handler(sock)
+        t = threading.Thread(target=lambda: request_handler(sock))
+        t.start()
+def request_handler(sock: socket.socket) -> None:
+    request_bytes = sock.recv(1024)
+    request = HTTPRequest.from_bytes(request_bytes)
+    headers = {}
+    response_body = ""
+    response_code = "404 Not Found"
+    if request.path == "/":
+        response_code = "200 OK"
+    elif request.path.startswith("/echo/"):
+        response_code = "200 OK"
+        response_body = request.path[len("/echo/") :]
+        headers["Content-Type"] = "text/plain"
+        headers["Content-Length"] = len(response_body)
+    elif request.path.startswith("/user-agent"):
+        response_code = "200 OK"
+        response_body = request.headers.get("User-Agent")
+        headers["Content-Type"] = "text/plain"
+        headers["Content-Length"] = len(response_body)
+    response_contents = [
+        f"{request.http_version} {response_code}",
+        *[f"{key}: {value}" for key, value in headers.items()],
+        "",
+        response_body,
+    ]
+    sock.send("\r\n".join(response_contents).encode())
+    sock.close()
 if __name__ == "__main__":
     main()
