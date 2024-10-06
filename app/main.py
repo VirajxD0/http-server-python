@@ -1,102 +1,111 @@
-import argparse
-import os
 import socket
-from threading import *
-class Connection(Thread):
-    def __init__(self, socket, address):
-        super().__init__()
-        self.sock = socket
-        self.addr = address
-        self.start()
-    def run(self):
-        print(f"Started thread with {self.addr}")
-        resp = self.req().decode().splitlines()
-        req_type, path, http_ver = resp[0].split(" ")
-        parsed_headers = dict(line.split(": ", 1) for line in resp[1:-2])
-        if path == "/":
-            self.resp(["HTTP/1.1 200 OK", "", ""])
-        elif path.startswith("/echo/"):
-            self.resp(
-                [
-                    "HTTP/1.1 200 OK",
-                    "Content-Type: text/plain",
-                    f"Content-Length: " + str(len(path[6:])),
-                    "",
-                    path[6:],
-                ]
-            )
-        elif path == "/user-agent":
-            self.resp(
-                [
-                    "HTTP/1.1 200 OK",
-                    "Content-Type: text/plain",
-                    f'Content-Length: {len(parsed_headers["User-Agent"])}',
-                    "",
-                    parsed_headers["User-Agent"],
-                ]
-            )
-        # elif path.startswith('/list-files/'):
-        #    dir_content = os.listdir(args.directory)
-        #    print(dir_content)
-        #    data = [i for i in dir_content]
-        #    print(map(len, data))
-        #    self.resp(
-        #        ['HTTP/1.1 200 OK', 'Content-Type: text/plain', f'Content-Length: {len(data)}',
-        #         '', '\r\n'.join(data)])
-        elif path.startswith("/files/"):
-            
-                 print(os.listdir(args.directory))
-                 print(os.path.join(args.directory, path[7:]))
-                 
-                 if os.path.exists(os.path.join(args.directory, path[7:])):
-                   with open(os.path.join(args.directory, path[7:]), "r") as f:
-                    file_content = f.read()
-                   self.resp(
-                    [
-                        "HTTP/1.1 200 OK",
-                        
-                        "Content-Type: application/octet-stream",
-                        f"Content-Length: {len(file_content)}",
-                        "",
-                        file_content,
-                    ]
-                )
-                 else:
-                  self.resp(
-                    [
-                        "HTTP/1.1 404",
-                        "Content-Type: text/plain",
-                        f"Content-Length: 3",
-                        "",
-                        "404",
-                    ]
-                )
+import os
+import sys
+from threading import Thread
+
+def reply(req, code, body="", headers={}):
+    b_reply = b""
+    match code:
+        case 200:
+            b_reply += b"HTTP/1.1 200 OK\r\n"
+        case 404:
+            b_reply += b"HTTP/1.1 404 Not Found\r\n"
+        case 500:
+            b_reply += b"HTTP/1.1 500 Internal Server Error\r\n"
+    
+    if "Content-Type" not in headers:
+        headers["Content-Type"] = "text/plain"
+    if body:
+        headers["Content-Length"] = str(len(body))
+    
+    for key, val in headers.items():
+        b_reply += bytes(f"{key}: {val}", "utf-8") + b"\r\n"
+    b_reply += b"\r\n" + bytes(body, "utf-8")
+    return b_reply
+
+def handle_request(req, base_directory):
+    if req["path"] == "/":
+        return reply(req, 200)
+    elif req["path"].startswith("/echo/"):
+        return reply(req, 200, req["path"][6:])
+    elif req["path"].startswith("/files/"):
+        filename = req["path"][7:]  # Get the filename from the path
+        file_path = os.path.join(base_directory, filename)
+        
+        if os.path.isfile(file_path):
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+            headers = {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(file_content))
+            }
+            return reply(req, 200, file_content, headers)
         else:
-            self.resp(
-                [
-                    "HTTP/1.1 404",
-                    "Content-Type: text/plain",
-                    f"Content-Length: 3",
-                    "",
-                    "404",
-                ]
-            )
-    def req(self):
-        return self.sock.recv(1024)
-    def resp(self, args: list):
-        print("------------")
-        print("\r\n".join(args))
-        print("------------")
-        self.sock.send("\r\n".join(args).encode())
+            return reply(req, 404)
+    elif req["path"] == "/user-agent":
+        ua = req["headers"].get("User-Agent", "")
+        return reply(req, 200, ua)
+    else:
+        return reply(req, 404)
+
+def parse_request(data):
+    output = {"method": "", "path": "", "headers": {}, "body": ""}
+    lines = data.decode("utf-8").split("\r\n")
+    if len(lines) < 3:
+        return None
+    req_line = lines[0].split(" ")
+    if req_line[0] not in ["GET", "POST", "PUT", "HEAD"]:
+        return None
+    output["method"] = req_line[0]
+    output["path"] = req_line[1]
+
+    lines = lines[1:]
+    header_line_count = 0
+    for line in lines:
+        if line == "":
+            break
+        header_key, header_value = line.split(": ", 1)
+        output["headers"][header_key] = header_value
+        header_line_count += 1
+    if len(lines) > header_line_count + 1:
+        output["body"] = lines[header_line_count + 1]
+    return output
+
+def handle_client(conn, base_directory):
+    try:
+        data = conn.recv(1024)
+        if not data:
+            return
+        req = parse_request(data)
+        if req is None:
+            conn.send(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
+        else:
+            response = handle_request(req, base_directory)
+            conn.sendall(response)
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    finally:
+        conn.close()
+
 def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!")
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
+    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
+        print("Usage: python your_program.py --directory <absolute_path>")
+        return
+
+    base_directory = sys.argv[2]
+
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(("localhost", 4221))
+    server_socket.listen()
+
+    print("Server is listening on localhost:4221...")
+
     while True:
-        client, client_addr = server_socket.accept()  # wait for client
-        Connection(client, client_addr)
+        conn, addr = server_socket.accept()
+        print(f"Connected by {addr}")
+        client_thread = Thread(target=handle_client, args=(conn, base_directory))
+        client_thread.start()
+
 if __name__ == "__main__":
-    parse = argparse.ArgumentParser()
-    parse.add_argument("--directory", required=False)
-    args = parse.parse_args()
     main()
