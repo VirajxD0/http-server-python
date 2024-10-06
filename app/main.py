@@ -30,7 +30,15 @@ def handle_request(req, base_directory):
     if req["path"] == "/":
         return reply(req, 200)
     elif req["path"].startswith("/echo/"):
-        return reply(req, 200, req["path"][6:].encode('utf-8'))
+        response_body = req["path"][6:].encode('utf-8')
+        headers = {}
+        
+        # Check for Accept-Encoding header
+        accept_encoding = req["headers"].get("Accept-Encoding", "")
+        if "gzip" in accept_encoding:
+            headers["Content-Encoding"] = "gzip"  # Add Content-Encoding header
+        
+        return reply(req, 200, response_body, headers)
     elif req["path"].startswith("/files/"):
         filename = req["path"][7:]  # Get the filename from the path
         file_path = os.path.join(base_directory, filename)
